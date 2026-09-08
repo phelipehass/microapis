@@ -1,0 +1,25 @@
+{$DOMAIN} {
+	# TLS automático: o Caddy emite e renova o certificado sozinho.
+	encode gzip zstd
+
+	# O RapidAPI monitora a saúde da origem; manter /health barato e sem log
+	# evita encher o disco com a batida periódica deles.
+	handle /health {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		reverse_proxy api:8080 {
+			# Repassa o IP real para o rate limit por IP funcionar quando o
+			# request não vier com o cabeçalho de usuário do RapidAPI.
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+	}
+}

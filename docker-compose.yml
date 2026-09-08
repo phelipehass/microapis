@@ -1,0 +1,65 @@
+# Stack de produção do VPS: a API mais um Caddy na frente.
+#
+# O Caddy existe porque o RapidAPI só aceita origem em HTTPS com certificado
+# válido, e ele resolve isso sozinho (emite e renova via Let's Encrypt) sem
+# nenhuma configuração além do domínio.
+
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "8080"
+      APP_ENV: production
+    # Sem "ports": a API não é publicada na internet. O único caminho até ela
+    # é o Caddy, pela rede interna do Compose. Isso impede que alguém bata
+    # direto no IP:8080 e escape do medidor do RapidAPI.
+    expose:
+      - "8080"
+    networks:
+      - interna
+    deploy:
+      resources:
+        limits:
+          # Teto de memória: conversão de HTML é o único ponto que aloca de
+          # verdade, e um pico não pode derrubar o Caddy junto.
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Definido no .env: o domínio que aponta para o VPS.
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    networks:
+      - interna
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  interna:
+    driver: bridge
+
+volumes:
+  # Persiste os certificados: sem isso, cada recriação do container pede
+  # certificado novo e esbarra no rate limit do Let's Encrypt.
+  caddy_data:
+  caddy_config:
