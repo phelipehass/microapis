@@ -1,0 +1,314 @@
+openapi: 3.0.3
+
+# Este arquivo é importado direto no RapidAPI (Add New API > Import from
+# OpenAPI). Ele gera os endpoints, os parâmetros e os exemplos da listagem, que
+# é o que o assinante lê antes de decidir assinar — descrição ruim aqui custa
+# conversão lá.
+
+info:
+  title: Article Extractor & Markdown API
+  version: 1.0.0
+  description: |
+    Turn any web page into clean Markdown, ready for LLMs, RAG pipelines and
+    content workflows.
+
+    Send a URL and get back the main article content with the navigation,
+    ads, cookie banners, sidebars and footers stripped out — plus the
+    metadata you usually have to scrape yourself (title, author, publish
+    date, language, cover image, word count, reading time).
+
+    **Why developers use it**
+    - **Markdown built for LLMs** — headings, lists, tables and code blocks
+      are preserved, so you can feed the output straight into a model.
+    - **Tables survive.** Most converters flatten tables into unreadable
+      text. This one keeps the columns.
+    - **Links are absolute.** Relative hrefs are resolved against the page
+      URL, so nothing breaks once the content leaves its original site.
+    - **Any encoding.** Legacy pages (ISO-8859-1 and friends) come back as
+      correct UTF-8 instead of mojibake.
+    - **Three output formats:** `markdown`, `text` or cleaned `html`.
+    - **Already have the HTML?** POST it and skip the fetch — useful for
+      pages behind a login.
+
+    Typical response time is under one second.
+
+servers:
+  - url: https://api.example.com
+    description: Substitua pelo domínio do seu VPS antes de importar
+
+tags:
+  - name: Extraction
+    description: Extract readable content from a web page
+
+paths:
+  /v1/extract:
+    get:
+      tags: [Extraction]
+      summary: Extract an article from a URL
+      description: |
+        Fetches the page and returns its main content in the requested
+        format, along with the article metadata.
+      operationId: extractFromURL
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: The absolute URL of the page to extract. Must be http or https.
+          schema:
+            type: string
+            format: uri
+          example: https://go.dev/blog/go1.22
+        - name: format
+          in: query
+          required: false
+          description: |
+            Output format. `markdown` (default) is the best fit for LLM
+            prompts, `text` gives plain prose with no syntax, and `html`
+            returns the cleaned-up HTML.
+          schema:
+            type: string
+            enum: [markdown, text, html]
+            default: markdown
+        - name: include_images
+          in: query
+          required: false
+          description: Keep images in the output. Set to `false` to cut noise before sending content to a model.
+          schema:
+            type: boolean
+            default: true
+        - name: include_links
+          in: query
+          required: false
+          description: Keep hyperlinks. When `false`, the anchor text is preserved and the URL is dropped.
+          schema:
+            type: boolean
+            default: true
+        - name: full_page
+          in: query
+          required: false
+          description: |
+            Skip the readability algorithm and convert the whole page. Use it
+            for documentation, changelogs and wikis, where the article
+            heuristic can trim too much.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Content extracted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractResponse"
+        "400":
+          description: Missing or invalid parameter
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: The URL points to a private or reserved network address
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "413":
+          description: The page is larger than the size limit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "415":
+          description: The URL did not return an HTML document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "422":
+          description: The page loaded but has no readable article. Retry with `full_page=true`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "429":
+          description: Too many requests
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "502":
+          description: The target site failed to respond correctly
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "504":
+          description: The target site took too long to respond
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    post:
+      tags: [Extraction]
+      summary: Extract an article from raw HTML
+      description: |
+        Send HTML you already have and skip the fetch entirely. Ideal for
+        pages behind authentication, or when you crawled the page yourself
+        and only need the conversion.
+
+        Pass `url` as well when you can — it is used to turn relative links
+        into absolute ones.
+      operationId: extractFromHTML
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                html:
+                  type: string
+                  description: The raw HTML. When omitted, `url` is fetched instead.
+                url:
+                  type: string
+                  format: uri
+                  description: Base URL used to resolve relative links. Required if `html` is empty.
+                format:
+                  type: string
+                  enum: [markdown, text, html]
+                  default: markdown
+                include_images:
+                  type: boolean
+                  default: true
+                include_links:
+                  type: boolean
+                  default: true
+                full_page:
+                  type: boolean
+                  default: false
+            example:
+              url: https://example.com/post
+              html: "<html><head><title>Hello</title></head><body><article><h1>Hello</h1><p>World</p></article></body></html>"
+              format: markdown
+      responses:
+        "200":
+          description: Content extracted successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExtractResponse" }
+        "400":
+          description: Invalid JSON body, or neither `html` nor `url` was provided
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "413":
+          description: Request body exceeds 10 MiB
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "422":
+          description: No readable article found in the HTML
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /health:
+    get:
+      tags: [Extraction]
+      summary: Health check
+      operationId: health
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  time: { type: string, format: date-time }
+
+components:
+  schemas:
+    ExtractResponse:
+      type: object
+      properties:
+        url:
+          type: string
+          description: The URL that was requested.
+        resolved_url:
+          type: string
+          description: The final URL after redirects. Only present when it differs from `url`.
+        title:
+          type: string
+        byline:
+          type: string
+          description: Author line, when the page exposes one.
+        excerpt:
+          type: string
+          description: Short summary taken from the page metadata.
+        site_name:
+          type: string
+        language:
+          type: string
+          description: BCP-47 language tag, e.g. `en` or `pt-BR`.
+        image:
+          type: string
+          description: Cover image URL.
+        favicon:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+        modified_at:
+          type: string
+          format: date-time
+        format:
+          type: string
+          enum: [markdown, text, html]
+        content:
+          type: string
+          description: The extracted content in the requested format.
+        word_count:
+          type: integer
+        reading_time_minutes:
+          type: integer
+          description: Estimated at 200 words per minute.
+        duration_ms:
+          type: integer
+      example:
+        url: https://go.dev/blog/go1.22
+        title: Go 1.22 is released!
+        byline: Eli Bendersky, on behalf of the Go team
+        excerpt: Go 1.22 enhances for loops, brings new standard library functionality and improves performance.
+        site_name: The Go Programming Language
+        language: en
+        image: https://go.dev/doc/gopher/gopher5logo.jpg
+        format: markdown
+        content: "## Language changes\n\nThe long-standing \"for\" loop gotcha ..."
+        word_count: 612
+        reading_time_minutes: 4
+        duration_ms: 418
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: |
+                Stable machine-readable identifier. Program against this
+                rather than the message, which may be reworded.
+              enum:
+                - invalid_request
+                - invalid_url
+                - blocked_host
+                - fetch_failed
+                - content_too_large
+                - unsupported_content_type
+                - no_readable_content
+                - timeout
+                - rate_limited
+                - unauthorized
+                - internal_error
+            message:
+              type: string
+      example:
+        error:
+          code: no_readable_content
+          message: no readable article content found on this page; try full_page=true
