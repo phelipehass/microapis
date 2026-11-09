@@ -7,3 +7,6 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Plano de negócio (README original), mantido só localmente
+docs-rapidapi-PRIVATE.md
